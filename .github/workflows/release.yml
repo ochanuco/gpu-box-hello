@@ -1,0 +1,38 @@
+name: release
+
+# GPU 機に配る zip を作り、Release として公開する。タグは r<run 番号>-<sha 先頭 7 桁>。
+# 配備はここでは呼ばず、chabatake の gpu-box-app ワークフローを別に dispatch する。
+on:
+  workflow_dispatch:
+    inputs:
+      fail_check:
+        description: check が失敗する版にする（前の版に戻す動きの試験用）
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: zip を作る
+        env:
+          FAIL_CHECK: ${{ inputs.fail_check }}
+        run: |
+          tag="r${GITHUB_RUN_NUMBER}-${GITHUB_SHA::7}"
+          mkdir -p dist/pkg
+          cp -r hello.ps1 deploy ops dist/pkg/
+          jq -n --arg version "$tag" --arg commit "$GITHUB_SHA" '{version: $version, commit: $commit}' > dist/pkg/release.json
+          if [ "$FAIL_CHECK" = true ]; then : > dist/pkg/deploy/FAIL_CHECK; fi
+          (cd dist/pkg && zip -r ../gpu-box-hello.zip .)
+          echo "TAG=$tag" >> "$GITHUB_ENV"
+      - name: Release を公開する
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FAIL_CHECK: ${{ inputs.fail_check }}
+        run: |
+          notes="fail_check: $FAIL_CHECK"
+          gh release create "$TAG" dist/gpu-box-hello.zip --target "$GITHUB_SHA" --title "$TAG" --notes "$notes"
